@@ -216,8 +216,9 @@ class Worker(WorkerHelper):
             # Otherwise, we will set ROCR_VISIBLE_DEVICES to CUDA_VISIBLE_DEVICES
             # and remove ROCR_VISIBLE_DEVICES.
             if cuda_val:
-                raise ValueError("Please don't set ROCR_VISIBLE_DEVICES when HIP/CUDA_VISIBLE_DEVICES is set.")
-
+                # raise ValueError("Please don't set ROCR_VISIBLE_DEVICES when HIP/CUDA_VISIBLE_DEVICES is set.")
+                pass
+            print(f"ROCR_VISIBLE_DEVICES: {os.environ.get('ROCR_VISIBLE_DEVICES')}, **************")
             cuda_val = os.environ.pop("ROCR_VISIBLE_DEVICES")
             os.environ["CUDA_VISIBLE_DEVICES"] = cuda_val
             rocr_val = None

@@ -2,11 +2,26 @@
 set -xeuo pipefail
 
 unset ROCR_VISIBLE_DEVICES
-CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+
+
+mkdir -p data
+TRAIN_FILE=/root/workspace/ccot_verl/data/train.parquet
+if [ ! -f "${TRAIN_FILE}" ]; then
+    python examples/data_preprocess/lightr1.py --local_dir data
+fi
+
+TEST_FILE=/root/workspace/ccot_verl/data/aime-2024.parquet
+if [ ! -f "${TEST_FILE}" ]; then
+    wget -O "${TEST_FILE}" "https://huggingface.co/datasets/BytedTsinghua-SIA/AIME-2024/resolve/main/data/aime-2024.parquet?download=true"
+fi
+
 
 
 project_name='verl-debug'
-exp_name='DAPO-Qwen2.5-32B'
+exp_name='DAPO-LightR1-Qwen2.5-7B'
+# Enable CCOT
+enable_ccot=False  
+add_cot_to_answer=True
 
 adv_estimator=grpo
 
@@ -44,12 +59,9 @@ NNODES=${NNODES:-1}
 RAY_DATA_HOME=${RAY_DATA_HOME:-"${PWD}"}
 MODEL_PATH=${MODEL_PATH:-"Qwen/Qwen2.5-7B"}
 CKPTS_DIR=${CKPTS_DIR:-"${RAY_DATA_HOME}/ckpts/${project_name}/${exp_name}"}
-TRAIN_FILE=${TRAIN_FILE:-"${RAY_DATA_HOME}/data/dapo-math-17k.parquet"}
-TEST_FILE=${TEST_FILE:-"${RAY_DATA_HOME}/data/aime-2024.parquet"}
 
-
-# wget -O "${TRAIN_FILE}" "https://huggingface.co/datasets/BytedTsinghua-SIA/DAPO-Math-17k/resolve/main/data/dapo-math-17k.parquet?download=true"
-# wget -O "${TEST_FILE}" "https://huggingface.co/datasets/BytedTsinghua-SIA/AIME-2024/resolve/main/data/aime-2024.parquet?download=true"
+# Note: We don't need TRAIN_FILE and TEST_FILE for HuggingFace datasets
+# The dataset will be loaded directly from HuggingFace
 
 # Algorithm
 temperature=1.0
@@ -70,6 +82,9 @@ gen_tp=4
 ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     --working-dir "${WORKING_DIR}" \
     -- python3 -m recipe.dapo.main_dapo \
+    --config-name=dapo_trainer_lightr1 \
+    data.enable_ccot=${enable_ccot} \
+    data.add_cot_to_answer=${add_cot_to_answer} \
     data.train_files="${TRAIN_FILE}" \
     data.val_files="${TEST_FILE}" \
     data.prompt_key=prompt \
@@ -139,4 +154,4 @@ ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     trainer.save_freq=5 \
     trainer.total_epochs=1 \
     trainer.default_local_dir="${CKPTS_DIR}" \
-    trainer.resume_mode=auto 2>&1 | tee verl_dapo.log
+    trainer.resume_mode=auto 2>&1 | tee verl_dapo_lightr1.log

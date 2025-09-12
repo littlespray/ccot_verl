@@ -1,0 +1,37 @@
+hydra:
+  searchpath:
+    - file://verl/trainer/config
+
+defaults:
+  - ppo_trainer
+  - _self_
+
+# 使用自定义数据集类
+data:
+  custom_cls:
+    path: recipe/dapo/lightr1_dataset.py
+    name: LightR1Dataset
+    
+  # Enable CCOT (Chain of Thought)
+  enable_ccot: False  # Set to True to enable CCOT
+  add_cot_to_answer: True  # Enable only when ccot is enabled. Set to True to add COT to answer.
+  # Other data configurations inherit from parent
+  gen_batch_size: ${data.train_batch_size}
+
+reward_model:
+  reward_manager: dapo
+  overlong_buffer: 
+    enable: False # We try to avoid forgetting to set enable
+    len: 0
+    penalty_factor: 0.0
+    log: False
+
+algorithm:
+  filter_groups:
+    _target_: verl.trainer.config.FilterGroupsConfig
+    enable: False # We try to avoid forgetting to set enable
+    metric: null # acc / score / seq_reward / seq_final_reward / ...
+    max_num_gen_batches: 0 # Non-positive values mean no upper limit
+
+trainer:
+  project_name: verl-dapo
