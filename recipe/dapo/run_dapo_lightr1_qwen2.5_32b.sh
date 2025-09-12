@@ -20,8 +20,8 @@ fi
 project_name='verl-debug'
 exp_name='DAPO-LightR1-Qwen2.5-7B'
 # Enable CCOT
-enable_ccot=False  
-add_cot_to_answer=True
+enable_ccot=False 
+add_cot_to_answer=False
 
 adv_estimator=grpo
 
