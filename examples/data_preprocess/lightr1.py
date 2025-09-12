@@ -42,7 +42,7 @@ if __name__ == "__main__":
             cot = example.pop("solution")
             data = {
                 "data_source": data_source,
-                "prompt": [{"role": "user", "content": question}],
+                "prompt": question, # already in chat format
                 "cot": cot,
                 "ability": "math",
                 "reward_model": {"style": "rule", "ground_truth": answer},
