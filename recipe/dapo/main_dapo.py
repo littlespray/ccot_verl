@@ -155,6 +155,21 @@ class TaskRunner:
         )
         resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
 
+        # Create datasets manually - use custom dataset for training, default for validation
+        from verl.trainer.main_ppo import create_rl_dataset
+        from verl.utils.dataset.rl_dataset import RLHFDataset
+        
+        # Create training dataset with custom class
+        train_dataset = create_rl_dataset(config.data.train_files, config.data, tokenizer, processor)
+        
+        # Create validation dataset with default RLHFDataset class
+        val_dataset = RLHFDataset(
+            data_files=config.data.val_files,
+            tokenizer=tokenizer,
+            config=config.data,
+            processor=processor
+        )
+
         trainer = RayDAPOTrainer(
             config=config,
             tokenizer=tokenizer,
@@ -164,6 +179,8 @@ class TaskRunner:
             ray_worker_group_cls=ray_worker_group_cls,
             reward_fn=reward_fn,
             val_reward_fn=val_reward_fn,
+            train_dataset=train_dataset,
+            val_dataset=val_dataset,
             device_name=config.trainer.device,
         )
         trainer.init_workers()

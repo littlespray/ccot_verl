@@ -43,9 +43,6 @@ class LightR1Dataset(RLHFDataset):
         self.add_cot_to_answer = config.get("add_cot_to_answer", False)
         if self.enable_ccot:
             self.cot_ratio_list = self._get_cot_ratio_list(len(self.dataframe))
-        
-        # print(f"self.dataframe: {self.dataframe[0]}")
-        # print(self.processor is None)
 
     def add_cot_to_answer_impl(self, prompt: str) -> str:
         # Extract content between <think> and </think> tags
@@ -169,8 +166,6 @@ class LightR1Dataset(RLHFDataset):
         """Get a single item from the dataset."""
         # Get data from HuggingFace dataset
         row_dict = self.dataframe[item]
-        # print(f"Raw Input: {row_dict}")
-        
         # Extract fields
         problem = row_dict.pop(self.prompt_key)[0]['content']
         
@@ -200,9 +195,11 @@ class LightR1Dataset(RLHFDataset):
         
         # Apply chat template
         raw_prompt = self.tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
+
+        # print(f"raw_prompt before add cot to answer: {raw_prompt}")
         if self.enable_ccot and self.add_cot_to_answer:
             raw_prompt = self.add_cot_to_answer_impl(raw_prompt)
-
+        # print(f"raw_prompt after add cot to answer: {raw_prompt}")
 
         model_inputs = self.tokenizer(raw_prompt, return_tensors="pt", add_special_tokens=False)
         input_ids = model_inputs.pop("input_ids")
@@ -275,5 +272,4 @@ class LightR1Dataset(RLHFDataset):
         row_dict["index"] = index
         row_dict["tools_kwargs"] = tools_kwargs
         row_dict["interaction_kwargs"] = interaction_kwargs
-        # print(f"row_dict: {row_dict}")
         return row_dict
