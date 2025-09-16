@@ -119,7 +119,55 @@ class LightR1Dataset(RLHFDataset):
             
             ratio_list.append(ratio)
         return ratio_list
-    
+
+    def get_reverse_window_cot_ratio(self, dataset_len: int) -> List[float]:
+        # K is the step interval
+        group_size = 32  # batch_size / n_generation
+        K = 50
+        if dataset_len < K * group_size * 6:  # 6: first 3 intervals use ccot, the other half disable ccot
+            K = dataset_len // (group_size * 6)
+        
+        # Initialize the result list
+        ratio_list = []
+        
+        for idx in range(dataset_len):
+            # Determine which group this element belongs to
+            group_idx = idx // group_size
+            # Position within the group (0-31 for full groups)
+            pos_in_group = idx % group_size
+            
+            # Determine the ratio based on group index and position
+            if group_idx < K:
+                # First K groups: 0.0, 0.0, 0.0, 0.1
+                if pos_in_group < group_size * 0.25:
+                    ratio = 0.0
+                elif pos_in_group < group_size * 0.5:
+                    ratio = 0.0
+                elif pos_in_group < group_size * 0.75:
+                    ratio = 0.0
+                else:
+                    ratio = 0.1
+            elif group_idx < 2 * K:
+                # Next K groups: 0.0, 0.1, 0.0, 0.0
+                if pos_in_group < group_size * 0.25:
+                    ratio = 0.0
+                elif pos_in_group < group_size * 0.5:
+                    ratio = 0.1
+                else:
+                    ratio = 0.0
+            elif group_idx < 3 * K:
+                # Next K groups: 0.2, 0.0, 0.0, 0.0
+                if pos_in_group < group_size * 0.25:
+                    ratio = 0.2
+                else:
+                    ratio = 0.0
+            else:
+                # All remaining elements: 0.0
+                ratio = 0.0
+            
+            ratio_list.append(ratio)
+        return ratio_list
+
     def get_stair_cot_ratio(self, dataset_len: int) -> List[float]:
         target_ratio_set = [0.6, 0.4, 0.2, 0.0]
         ratio_list = []
@@ -142,6 +190,20 @@ class LightR1Dataset(RLHFDataset):
             ratio_list.append(ratio)
         return ratio_list
     
+    def get_reverse_stair_cot_ratio(self, dataset_len: int) -> List[float]:
+        ratio_list = []
+        for idx in range(dataset_len):
+            if idx < int(dataset_len * 0.9):
+                ratio = 0.0
+            elif idx < int(dataset_len * 0.95):
+                ratio = 0.1
+            else:
+                ratio = 0.2
+            ratio_list.append(ratio)
+        return ratio_list 
+
+
+    
     def _get_cot_ratio_list(self) -> List[float]:
         """Generate COT ratio list for curriculum learning."""
         dataset_len = len(self.dataframe)
@@ -153,6 +215,10 @@ class LightR1Dataset(RLHFDataset):
             return self.get_stair_cot_ratio(dataset_len)
         elif self.ccot_scheduler.lower() == "linear":
             return self.get_linear_cot_ratio(dataset_len)
+        elif self.ccot_scheduler.lower() == "reverse_stair":
+            return self.get_reverse_stair_cot_ratio(dataset_len)
+        elif self.ccot_scheduler.lower() == "reverse_window":
+            return self.get_reverse_window_cot_ratio(dataset_len)
         else:
             raise ValueError(f"Unknown CCOT scheduler: {self.ccot_scheduler}")
     

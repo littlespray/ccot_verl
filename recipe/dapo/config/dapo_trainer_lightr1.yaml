@@ -15,7 +15,7 @@ data:
   # Enable CCOT (Chain of Thought)
   enable_ccot: True  # Set to True to enable CCOT
   add_cot_to_answer: True  # Enable only when ccot is enabled. Set to True to add COT to answer.
-  ccot_scheduler: window
+  ccot_scheduler: reverse_window
   # Other data configurations inherit from parent
   gen_batch_size: ${data.train_batch_size}
 
