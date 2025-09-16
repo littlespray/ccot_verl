@@ -166,6 +166,14 @@ class LightR1Dataset(RLHFDataset):
         """Split COT based on ratio for curriculum learning."""
         ratio = self.cot_ratio_list[idx]
         # print(ratio, idx, '------------')
+
+        # Special case for "all" scheduler
+        if self.ccot_scheduler.lower() == "all":
+            sentences = cot.split('. ')
+            if len(sentences) < 1:
+                return ""
+            return '. '.join(sentences[:-1])
+
         if ratio <= 0.0:
             return ""
         else:
