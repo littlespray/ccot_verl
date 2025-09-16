@@ -118,6 +118,7 @@ ENV/
 # data
 *.parquet
 
+ckpts/
 
 # local logs
 logs
