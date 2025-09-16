@@ -2,6 +2,7 @@
 Custom dataset class for loading LightR1-Clean4 dataset from HuggingFace.
 """
 
+import os
 import re
 from typing import Optional, Any, Dict, List, Union
 import numpy as np
@@ -40,10 +41,11 @@ class LightR1Dataset(RLHFDataset):
 
         # CCOT configuration
         self.enable_ccot = config.get("enable_ccot", False)
+        self.ccot_scheduler = config.get("ccot_scheduler", "window")
         self.add_cot_to_answer = config.get("add_cot_to_answer", False)
         if self.enable_ccot:
-            self.cot_ratio_list = self._get_cot_ratio_list(len(self.dataframe))
-
+            self.cot_ratio_list = self._get_cot_ratio_list()
+        
     def add_cot_to_answer_impl(self, prompt: str) -> str:
         # Extract content between <think> and </think> tags
         if prompt.endswith(TEMPLATE_SUFFIX):
@@ -69,11 +71,10 @@ class LightR1Dataset(RLHFDataset):
         # logger.info(f"[Rollout] Add cot to answer Final: {prompt}")
         return prompt
     
-    def _get_cot_ratio_list(self, dataset_len: int) -> List[float]:
-        """Generate COT ratio list for curriculum learning."""
-        group_size = 32  # batch_size / n_generation
-        
+
+    def get_window_cot_ratio(self, dataset_len: int) -> List[float]:
         # K is the step interval
+        group_size = 32  # batch_size / n_generation
         K = 50
         if dataset_len < K * group_size * 6:  # 6: first 3 intervals use ccot, the other half disable ccot
             K = dataset_len // (group_size * 6)
@@ -117,8 +118,43 @@ class LightR1Dataset(RLHFDataset):
                 ratio = 0.0
             
             ratio_list.append(ratio)
-        
         return ratio_list
+    
+    def get_stair_cot_ratio(self, dataset_len: int) -> List[float]:
+        target_ratio_set = [0.6, 0.4, 0.2, 0.0]
+        ratio_list = []
+        for idx in range(dataset_len):
+            if idx < dataset_len // 4:
+                ratio = target_ratio_set[0]
+            elif idx < dataset_len // 2:
+                ratio = target_ratio_set[1]
+            elif idx < dataset_len // 4 * 3:
+                ratio = target_ratio_set[2]
+            else:
+                ratio = target_ratio_set[3]
+            ratio_list.append(ratio)
+        return ratio_list
+
+    def get_linear_cot_ratio(self, dataset_len: int) -> List[float]:
+        ratio_list = []
+        for idx in range(dataset_len):
+            ratio = 1.0 - idx / dataset_len
+            ratio_list.append(ratio)
+        return ratio_list
+    
+    def _get_cot_ratio_list(self) -> List[float]:
+        """Generate COT ratio list for curriculum learning."""
+        dataset_len = len(self.dataframe)
+        if self.ccot_scheduler.lower() == "window":
+            return self.get_window_cot_ratio(dataset_len)
+        elif self.ccot_scheduler.lower() == "all":
+            return [1.0] * dataset_len
+        elif self.ccot_scheduler.lower() == "stair":
+            return self.get_stair_cot_ratio(dataset_len)
+        elif self.ccot_scheduler.lower() == "linear":
+            return self.get_linear_cot_ratio(dataset_len)
+        else:
+            raise ValueError(f"Unknown CCOT scheduler: {self.ccot_scheduler}")
     
     def _extract_cot(self, text: str) -> str:
         """Extract content between <think> and </think> tags."""
@@ -128,8 +164,8 @@ class LightR1Dataset(RLHFDataset):
     
     def _split_cot(self, cot: str, idx: int) -> str:
         """Split COT based on ratio for curriculum learning."""
-        idx = idx % len(self.cot_ratio_list)  # in case of repeating
         ratio = self.cot_ratio_list[idx]
+        # print(ratio, idx, '------------')
         if ratio <= 0.0:
             return ""
         else:
@@ -164,6 +200,10 @@ class LightR1Dataset(RLHFDataset):
     
     def __getitem__(self, item: int) -> Dict[str, Any]:
         """Get a single item from the dataset."""
+        
+        # Create output file path
+        # output_file = os.path.join(self.output_dir, f"{item}.txt")
+        
         # Get data from HuggingFace dataset
         row_dict = self.dataframe[item]
         # Extract fields
@@ -178,13 +218,17 @@ class LightR1Dataset(RLHFDataset):
             solution = row_dict.pop('cot')
             if solution:
                 cot = self._extract_cot(solution)
+                # print('Raw Cot: ', cot)
+                # print('=============')
                 cot_used = self._split_cot(cot, item)
+                # print('Cot Used: ', cot_used)
+                # print('=============')
                 if len(cot_used) > 0:
                     cot_used = "<think>" + cot_used + "</think>"
                     prompt = DAPO_PROMPT_BEGIN + content + COT_PROMPT_BEGIN + cot_used + COT_PROMPT_END + DAPO_PROMPT_END
                 else:
-                    prompt = DAPO_PROMPT_BEGIN + content + DAPO_PROMPT_END            
-        
+                    prompt = DAPO_PROMPT_BEGIN + content + DAPO_PROMPT_END
+
         # Convert to chat format
         messages = [
             {
@@ -196,10 +240,10 @@ class LightR1Dataset(RLHFDataset):
         # Apply chat template
         raw_prompt = self.tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
 
-        # print(f"raw_prompt before add cot to answer: {raw_prompt}")
+        
         if self.enable_ccot and self.add_cot_to_answer:
             raw_prompt = self.add_cot_to_answer_impl(raw_prompt)
-        # print(f"raw_prompt after add cot to answer: {raw_prompt}")
+        
 
         model_inputs = self.tokenizer(raw_prompt, return_tensors="pt", add_special_tokens=False)
         input_ids = model_inputs.pop("input_ids")
@@ -273,3 +317,98 @@ class LightR1Dataset(RLHFDataset):
         row_dict["tools_kwargs"] = tools_kwargs
         row_dict["interaction_kwargs"] = interaction_kwargs
         return row_dict
+
+
+def main():
+    """
+    Main function to test LightR1Dataset by printing the first 100 elements to a txt file.
+    Configuration is based on recipe/dapo/run_dapo_lightr1_qwen2.5_32b.sh
+    """
+    import json
+    from transformers import AutoTokenizer
+    from omegaconf import OmegaConf
+    
+    # Setup configuration based on run_dapo_lightr1_qwen2.5_32b.sh
+    config = OmegaConf.create({
+        "enable_ccot": True,
+        "add_cot_to_answer": True,
+        "max_prompt_length": 8192,
+        "max_response_length": 2048,
+        "truncation": "left",
+        "prompt_key": "prompt",
+        "need_tools_kwargs": False,
+        "return_raw_chat": False,
+        "return_full_prompt": True,
+    })
+    
+    # Model path from the shell script
+    model_path = "Qwen/Qwen2.5-7B"
+    
+    # Load tokenizer
+    print(f"Loading tokenizer from {model_path}...")
+    tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+    
+    # Set pad token if not present
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    
+    # Data file path from the shell script
+    data_files = "/root/workspace/ccot_verl/data/train.parquet"
+    
+    # Check if data file exists
+    if not os.path.exists(data_files):
+        print(f"Warning: Data file {data_files} not found. Using HuggingFace dataset instead.")
+        # Use HuggingFace dataset if local file doesn't exist
+        data_files = None
+    
+    # Create dataset instance
+    print("Creating LightR1Dataset instance...")
+    dataset = LightR1Dataset(
+        data_files=data_files,
+        tokenizer=tokenizer,
+        config=config,
+        processor=None
+    )
+    
+    print(f"Dataset size: {len(dataset)}")
+    
+    # Get first 100 elements (or all if less than 100)
+    num_samples = min(100, len(dataset))
+    
+    # Create output file
+    output_file = "lightr1_dataset_first_100_samples.txt"
+    
+    print(f"Extracting first {num_samples} samples...")
+    
+    with open(output_file, 'w', encoding='utf-8') as f:
+        f.write(f"LightR1Dataset - First {num_samples} Samples\n")
+        f.write(f"Model: {model_path}\n")
+        f.write(f"Data file: {data_files}\n")
+        f.write(f"Configuration:\n{json.dumps(OmegaConf.to_container(config), indent=2)}\n")
+        f.write("="*100 + "\n\n")
+        
+        for idx in range(num_samples):
+            print(f"Processing sample {idx + 1}/{num_samples}...")
+            
+            try:
+                sample = dataset[idx]
+                
+                f.write(f"Sample {idx}:\n")
+                f.write("-"*80 + "\n")
+                
+                # Write key information from the sample
+                f.write(f"{sample}\n")
+                
+                f.write("\n" + "="*80 + "\n\n")
+                
+            except Exception as e:
+                f.write(f"Error processing sample {idx}: {str(e)}\n")
+                f.write("="*80 + "\n\n")
+                print(f"Error processing sample {idx}: {str(e)}")
+    
+    print(f"Successfully saved {num_samples} samples to {output_file}")
+    print(f"Additional prompt outputs have been saved to directory")
+
+
+if __name__ == "__main__":
+    main()
