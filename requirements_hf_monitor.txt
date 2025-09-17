@@ -1,0 +1,2 @@
+# Hugging Face 模型上传监控脚本依赖
+huggingface-hub>=0.20.0

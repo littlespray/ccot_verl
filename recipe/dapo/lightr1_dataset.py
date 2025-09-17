@@ -190,6 +190,20 @@ class LightR1Dataset(RLHFDataset):
             ratio_list.append(ratio)
         return ratio_list
     
+    def get_custom_cot_ratio(self, dataset_len: int) -> List[float]:
+        ratio_list = []
+        for idx in range(dataset_len):
+            if idx < 500:
+                ratio = 0.6
+            elif idx < 1000:
+                ratio = 0.4
+            elif idx < 1500:
+                ratio = 0.2
+            else:
+                ratio = 0.0
+            ratio_list.append(ratio)
+        return ratio_list
+    
     def get_reverse_stair_cot_ratio(self, dataset_len: int) -> List[float]:
         ratio_list = []
         for idx in range(dataset_len):
@@ -219,6 +233,8 @@ class LightR1Dataset(RLHFDataset):
             return self.get_reverse_stair_cot_ratio(dataset_len)
         elif self.ccot_scheduler.lower() == "reverse_window":
             return self.get_reverse_window_cot_ratio(dataset_len)
+        elif self.ccot_scheduler.lower() == "custom":
+            return self.get_custom_cot_ratio(dataset_len)
         else:
             raise ValueError(f"Unknown CCOT scheduler: {self.ccot_scheduler}")
     
