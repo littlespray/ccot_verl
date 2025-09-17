@@ -186,7 +186,7 @@ class LightR1Dataset(RLHFDataset):
     def get_linear_cot_ratio(self, dataset_len: int) -> List[float]:
         ratio_list = []
         for idx in range(dataset_len):
-            ratio = 1.0 - idx / dataset_len
+            ratio = idx / dataset_len
             ratio_list.append(ratio)
         return ratio_list
     
