@@ -250,7 +250,7 @@ class LightR1Dataset(RLHFDataset):
         # print(ratio, idx, '------------')
 
         # Special case for "all" scheduler
-        if self.ccot_scheduler.lower() == "all":
+        if "all" in self.ccot_scheduler.lower():
             sentences = cot.split('. ')
             if len(sentences) < 1:
                 return ""

@@ -59,7 +59,138 @@ from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seql
 from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
 
+# Add huggingface_hub imports for upload functionality
+import json as json_module
+from datetime import datetime
+from pathlib import Path
+from huggingface_hub import HfApi, create_repo, upload_folder
+
 WorkerType = Type[Worker]
+
+
+def upload_to_hf(local_folder_path: str, hf_user: str, hf_token: str):
+    """
+    Upload a local folder to Hugging Face as a model.
+    Uses branches to manage versions and maintains max 5 versions.
+    
+    Args:
+        local_folder_path: Path to the local folder to upload
+        hf_user: Hugging Face username
+        hf_token: Hugging Face API token
+    """
+    try:
+        # Get folder name for repo name (no timestamp)
+        folder_path = Path(local_folder_path)
+        folder_name = folder_path.name
+        repo_id = f"{hf_user}/{folder_name}"
+        
+        # Initialize HuggingFace API
+        api = HfApi(token=hf_token)
+        
+        # Check if repository exists, create if not
+        try:
+            api.repo_info(repo_id=repo_id, token=hf_token)
+            print(f"Repository {repo_id} already exists")
+        except Exception:
+            print(f"Creating repository: {repo_id}")
+            create_repo(
+                repo_id=repo_id,
+                token=hf_token,
+                private=False,
+                exist_ok=True
+            )
+        
+        # Create branch name with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        branch_name = f"v_{timestamp}"
+        
+        print(f"Uploading folder {local_folder_path} to {repo_id} on branch: {branch_name}")
+        
+        # Create a VERSION file to track the current version
+        version_file = folder_path / "VERSION"
+        version_info = {
+            "version": branch_name,
+            "timestamp": datetime.now().isoformat(),
+            "branch": branch_name
+        }
+        with open(version_file, 'w') as f:
+            json_module.dump(version_info, f, indent=2)
+        
+        # Create the branch and upload
+        api.create_branch(
+            repo_id=repo_id,
+            branch=branch_name,
+            token=hf_token
+        )
+        
+        # Upload the entire folder to the new branch
+        upload_folder(
+            folder_path=str(local_folder_path),
+            repo_id=repo_id,
+            token=hf_token,
+            revision=branch_name,
+            commit_message=f"Version {branch_name}: Upload checkpoint at {datetime.now().isoformat()}"
+        )
+        
+        # Clean up the temporary VERSION file
+        if version_file.exists():
+            version_file.unlink()
+        
+        print(f"Successfully uploaded to: https://huggingface.co/{repo_id}/tree/{branch_name}")
+        
+        # Also update main branch to point to latest
+        upload_folder(
+            folder_path=str(local_folder_path),
+            repo_id=repo_id,
+            token=hf_token,
+            revision="main",
+            commit_message=f"Update main to version {branch_name}"
+        )
+        
+        # Manage branches - keep only latest 5
+        try:
+            # Get all branches
+            refs = api.list_repo_refs(repo_id=repo_id, token=hf_token)
+            branches = [branch.ref for branch in refs.branches]
+            
+            # Filter version branches (starting with v_)
+            version_branches = [b for b in branches if b.startswith("refs/heads/v_")]
+            version_branches = [b.replace("refs/heads/", "") for b in version_branches]
+            
+            # Sort by timestamp (branch names have timestamp)
+            version_branches.sort()
+            
+            print(f"Current version branches: {len(version_branches)}")
+            
+            # Delete old branches if more than 5
+            if len(version_branches) > 5:
+                branches_to_delete = version_branches[:-5]
+                print(f"Deleting {len(branches_to_delete)} old branches to maintain max 5 versions")
+                
+                for old_branch in branches_to_delete:
+                    try:
+                        api.delete_branch(
+                            repo_id=repo_id,
+                            branch=old_branch,
+                            token=hf_token
+                        )
+                        print(f"Deleted old branch: {old_branch}")
+                    except Exception as e:
+                        print(f"Failed to delete branch {old_branch}: {e}")
+                
+                # Show remaining branches
+                remaining_branches = version_branches[-5:]
+                print(f"\nRemaining version branches:")
+                for i, branch in enumerate(remaining_branches):
+                    print(f"  {i+1}. {branch}")
+        
+        except Exception as e:
+            print(f"Warning: Could not manage branches: {e}")
+        
+    except Exception as e:
+        print(f"Failed to upload to Hugging Face: {e}")
+        # Don't raise the exception to avoid breaking the training process
+        # Just log the error and continue
 
 
 class Role(Enum):
@@ -837,6 +968,8 @@ class RayPPOTrainer:
         local_latest_checkpointed_iteration = os.path.join(self.config.trainer.default_local_dir, "latest_checkpointed_iteration.txt")
         with open(local_latest_checkpointed_iteration, "w") as f:
             f.write(str(self.global_steps))
+        
+        upload_to_hf(local_global_step_folder, hf_user='sunshk', hf_token=self.config.trainer.hf_token)
 
     def _load_checkpoint(self):
         if self.config.trainer.resume_mode == "disable":
