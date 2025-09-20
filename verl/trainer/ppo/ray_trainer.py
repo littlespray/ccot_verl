@@ -969,7 +969,7 @@ class RayPPOTrainer:
         with open(local_latest_checkpointed_iteration, "w") as f:
             f.write(str(self.global_steps))
         
-        upload_to_hf(local_global_step_folder, hf_user='sunshk', hf_token=self.config.trainer.hf_token)
+        upload_to_hf(self.config.trainer.default_local_dir, hf_user='sunshk', hf_token=self.config.trainer.hf_token)
 
     def _load_checkpoint(self):
         if self.config.trainer.resume_mode == "disable":
