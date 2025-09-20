@@ -36,3 +36,4 @@ algorithm:
 
 trainer:
   project_name: verl-dapo
+  hf_token: None
