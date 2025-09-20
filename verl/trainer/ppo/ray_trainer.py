@@ -81,7 +81,7 @@ def upload_to_hf(local_folder_path: str, hf_user: str, hf_token: str):
     try:
         # Get folder name for repo name (no timestamp)
         folder_path = Path(local_folder_path)
-        folder_name = folder_path.name
+        folder_name = folder_path.parent.name  # Use parent directory name (second-to-last level)
         repo_id = f"{hf_user}/{folder_name}"
         
         # Initialize HuggingFace API
